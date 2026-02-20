@@ -100,7 +100,7 @@ namespace AnrylnroBannerlord.Api
         {
             try
             {
-                System.Net.Http.HttpResponseMessage response = _httpClient.GetAsync($"http://127.0.0.1:{port}/_anrylnro/ping").GetAwaiter().GetResult();
+                HttpResponseMessage response = _httpClient.GetAsync($"http://127.0.0.1:{port}/ping").GetAwaiter().GetResult();
                 if (!response.IsSuccessStatusCode)
                 {
                     ModLogger.Warn($"Ping on port {port} returned HTTP {(int)response.StatusCode}.");

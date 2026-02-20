@@ -2,6 +2,7 @@
 using AnrylnroBannerlord.Network;
 using AnrylnroBannerlord.Utils;
 using BannerlordPlayerApi.Network;
+using NetworkMessages.FromServer;
 using TaleWorlds.Core;
 using TaleWorlds.ModuleManager;
 using TaleWorlds.MountAndBlade;
@@ -24,7 +25,7 @@ namespace AnrylnroBannerlord
             _configManager.LoadConfig(ModuleHelper.GetModuleFullPath("Native") + customGameServerConfigFile);
 
 
-            InitialListedGameServerState.OnActivated += DedicatedCustomGameServerStateActivatedee;
+            InitialListedGameServerState.OnActivated += DedicatedCustomGameServerStateActivated;
         }
 
         public override void OnMissionBehaviorInitialize(Mission mission)
@@ -32,7 +33,7 @@ namespace AnrylnroBannerlord
             mission.AddMissionBehavior(new PlayerTrackerBehavior());
         }
 
-        private void DedicatedCustomGameServerStateActivatedee()
+        private void DedicatedCustomGameServerStateActivated()
         {
             // 输出Banner横幅
             String banner = @"
@@ -47,18 +48,26 @@ namespace AnrylnroBannerlord
             ApiServer.Start();
 
             _chatBox = Game.Current.GetGameHandler<ChatBox>();
-            _chatBox.OnMessageReceivedAtDedicatedServer = 
-                (Action<NetworkCommunicator, string>)Delegate.Combine(_chatBox.OnMessageReceivedAtDedicatedServer, new Action<NetworkCommunicator, string>(this.OnMessageReceivedAtDedicatedServer));
+            _chatBox.OnMessageReceivedAtDedicatedServer += OnMessageReceivedAtDedicatedServer;
         }
 
         private void OnMessageReceivedAtDedicatedServer(NetworkCommunicator fromPeer, string message)
         {
-            ModLogger.Log($"{fromPeer.UserName}: {message}");
+            if ("/register".Equals(message))
+            {
+                _ = ApiServer.Instance.RegisterLifecycleAsync(ApiServer.RegisterUrl);
+                GameNetwork.BeginModuleEventAsServer(fromPeer);
+                GameNetwork.WriteMessage(new ServerMessage("Send register message to master server.", false));
+                GameNetwork.EndModuleEventAsServer();
+            }
         }
 
         protected override void OnSubModuleUnloaded()
         {
             ApiServer.Stop();
+            _chatBox.OnMessageReceivedAtDedicatedServer -= OnMessageReceivedAtDedicatedServer;
+            InitialListedGameServerState.OnActivated -= DedicatedCustomGameServerStateActivated;
+            
             base.OnSubModuleUnloaded();
         }
 

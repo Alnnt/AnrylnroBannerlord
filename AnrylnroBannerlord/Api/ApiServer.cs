@@ -10,7 +10,7 @@ namespace AnrylnroBannerlord.Api
     {
         private const string PluginMarkerHeader = "X-Anrylnro-ApiServer";
         private const string PluginMarkerValue = "1";
-        private const string RegisterUrl = "http://anrylnro.wm-valley.com/bannerlord/register";
+        public const string RegisterUrl = "http://anrylnro.wm-valley.com/bannerlord/register";
         private const string UnregisterUrl = "http://anrylnro.wm-valley.com/bannerlord/unregister";
         private const string ApiKeyHeader = "X-API-KEY";
 

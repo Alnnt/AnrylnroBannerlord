@@ -5,7 +5,7 @@ namespace AnrylnroBannerlord.Api
 {
     public partial class ApiServer
     {
-        private async Task RegisterLifecycleAsync(string url)
+        public async Task RegisterLifecycleAsync(string url)
         {
             try
             {
@@ -41,8 +41,9 @@ namespace AnrylnroBannerlord.Api
             {
                 RegisterLifecycleAsync(url).GetAwaiter().GetResult();
             }
-            catch
+            catch (Exception ex)
             {
+                ModLogger.Error($"Lifecycle call failed ({url}): {ex.Message}");
             }
         }
 

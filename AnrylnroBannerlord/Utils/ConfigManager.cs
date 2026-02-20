@@ -39,16 +39,7 @@ namespace AnrylnroBannerlord.Utils
                     {
                         string key = text.Substring(0, text.IndexOf(' '));
                         string value = text.Substring(text.IndexOf(' ') + 1);
-                        // 如果配置项已经存在，则覆盖原有值，并记录日志
-                        if (config.ContainsKey(key))
-                        {
-                            ModLogger.Warn($"Configuration item already exists: {key}, overwrite value: {value}");
-                            config[key] = value;
-                        }
-                        else
-                        {
-                            config.Add(key, value);
-                        }
+                        config[key] = value;
                     }
                 }
             }

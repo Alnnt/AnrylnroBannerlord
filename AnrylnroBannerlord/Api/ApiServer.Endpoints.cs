@@ -9,11 +9,27 @@ namespace AnrylnroBannerlord.Api
 {
     public partial class ApiServer
     {
-        [ApiEndpoint("GET", "/_anrylnro/ping")]
+        [ApiEndpoint("GET", "/ping")]
         private Task PingAsync(HttpContext context, CancellationToken token)
         {
-            context.Response.StatusCode = 200;
-            return Task.CompletedTask;
+            return HandlePingAsync(context, token);
+        }
+
+        private async Task HandlePingAsync(HttpContext context, CancellationToken token)
+        {
+            bool handledByForward = await TryForwardGetToChildAsync(
+                context,
+                token,
+                endpointPath: "/ping",
+                requireApiKey: false,
+                endpointName: "Ping",
+                (content, ct) => WritePlainTextAsync(context, content, ct));
+            if (handledByForward)
+            {
+                return;
+            }
+
+            await WritePlainTextAsync(context, "OK", token);
         }
 
         [ApiEndpoint("POST", "/_anrylnro/children/register", HostOnly = true)]
@@ -30,7 +46,7 @@ namespace AnrylnroBannerlord.Api
             }
 
             _children[childGamePort] = $"http://127.0.0.1:{childPort}";
-            ModLogger.Log($"Child registered. gamePort={childGamePort}, childPort={childPort}.");
+            ModLogger.Log($"Child Alive. gamePort={childGamePort}, childPort={childPort}.");
             context.Response.StatusCode = 200;
             return Task.CompletedTask;
         }
@@ -43,38 +59,15 @@ namespace AnrylnroBannerlord.Api
 
         private async Task HandlePlayersAsync(HttpContext context, CancellationToken token)
         {
-            string targetGamePortText = context.Request.Query["gamePort"];
-            bool hasTarget = int.TryParse(targetGamePortText, out int targetGamePort);
-            bool shouldForward = _isHost && hasTarget && targetGamePort != _gamePort;
-
-            if (shouldForward)
+            bool handledByForward = await TryForwardGetToChildAsync(
+                context,
+                token,
+                endpointPath: "/players",
+                requireApiKey: true,
+                endpointName: "Players",
+                (content, ct) => WriteJsonAsync(context, content, ct));
+            if (handledByForward)
             {
-                if (!_children.TryGetValue(targetGamePort, out string childBaseUrl))
-                {
-                    context.Response.StatusCode = 404;
-                    ModLogger.Warn($"Players forward failed: child not found for gamePort={targetGamePort}.");
-                    return;
-                }
-
-                string requestApiKey = context.Request.Headers[ApiKeyHeader];
-                if (string.IsNullOrWhiteSpace(requestApiKey))
-                {
-                    context.Response.StatusCode = 403;
-                    ModLogger.Warn("Players forward rejected: missing API key in request.");
-                    return;
-                }
-
-                string url = childBaseUrl + "/players";
-                ModLogger.Log($"Forward /players to child. targetGamePort={targetGamePort}, url={url}.");
-                (int StatusCode, string Content) forwardResult = await GetStringWithApiKeyAsync(url, token, requestApiKey);
-                if (forwardResult.StatusCode < 200 || forwardResult.StatusCode >= 300)
-                {
-                    context.Response.StatusCode = forwardResult.StatusCode;
-                    ModLogger.Warn($"Players forward failed: child returned HTTP {forwardResult.StatusCode}.");
-                    return;
-                }
-
-                await WriteJsonAsync(context, forwardResult.Content, token);
                 return;
             }
 
@@ -106,6 +99,71 @@ namespace AnrylnroBannerlord.Api
             context.Response.ContentLength = buffer.Length;
             context.Response.StatusCode = 200;
             await context.Response.Body.WriteAsync(buffer, 0, buffer.Length, token);
+        }
+
+        private async Task WritePlainTextAsync(HttpContext context, string text, CancellationToken token)
+        {
+            byte[] buffer = Encoding.UTF8.GetBytes(text);
+            context.Response.ContentType = "text/plain";
+            context.Response.ContentLength = buffer.Length;
+            context.Response.StatusCode = 200;
+            await context.Response.Body.WriteAsync(buffer, 0, buffer.Length, token);
+        }
+
+        private async Task<bool> TryForwardGetToChildAsync(
+            HttpContext context,
+            CancellationToken token,
+            string endpointPath,
+            bool requireApiKey,
+            string endpointName,
+            Func<string, CancellationToken, Task> writeSuccessResponseAsync)
+        {
+            string targetGamePortText = context.Request.Query["gamePort"];
+            bool hasTarget = int.TryParse(targetGamePortText, out int targetGamePort);
+            bool shouldForward = _isHost && hasTarget && targetGamePort != _gamePort;
+            if (!shouldForward)
+            {
+                return false;
+            }
+
+            if (!_children.TryGetValue(targetGamePort, out string childBaseUrl))
+            {
+                context.Response.StatusCode = 404;
+                ModLogger.Warn($"{endpointName} forward failed: child not found for gamePort={targetGamePort}.");
+                return true;
+            }
+
+            string url = childBaseUrl + endpointPath;
+            (int StatusCode, string Content) forwardResult;
+            if (requireApiKey)
+            {
+                string requestApiKey = context.Request.Headers[ApiKeyHeader];
+                if (string.IsNullOrWhiteSpace(requestApiKey))
+                {
+                    context.Response.StatusCode = 403;
+                    ModLogger.Warn($"{endpointName} forward rejected: missing API key in request.");
+                    return true;
+                }
+
+                forwardResult = await GetStringWithApiKeyAsync(url, token, requestApiKey);
+            }
+            else
+            {
+                using HttpResponseMessage response = await _httpClient.GetAsync(url, token);
+                string content = await response.Content.ReadAsStringAsync();
+                forwardResult = ((int)response.StatusCode, content);
+            }
+
+            ModLogger.Log($"Forward {endpointPath} to child. targetGamePort={targetGamePort}, url={url}.");
+            if (forwardResult.StatusCode < 200 || forwardResult.StatusCode >= 300)
+            {
+                context.Response.StatusCode = forwardResult.StatusCode;
+                ModLogger.Warn($"{endpointName} forward failed: child returned HTTP {forwardResult.StatusCode}.");
+                return true;
+            }
+
+            await writeSuccessResponseAsync(forwardResult.Content, token);
+            return true;
         }
 
         private void RegisterEndpoints()
